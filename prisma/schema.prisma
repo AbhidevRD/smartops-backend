@@ -1,0 +1,59 @@
+// Prisma Schema — SmartOps AI
+// This file defines ALL your database tables
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider  = "postgresql"
+  url       = env("DATABASE_URL")
+  directUrl = env("DIRECT_URL")
+}
+
+// ── USERS TABLE ─────────────────────────────────────────────
+model User {
+  id            String    @id @default(uuid())
+  email         String    @unique
+  passwordHash  String
+  name          String
+  role          Role      @default(MEMBER)
+  isVerified    Boolean   @default(false)
+  avatarUrl     String?
+  xpPoints      Int       @default(0)
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+
+  // Relations — will be filled as you add more features
+  otpTokens     OtpToken[]
+  @@map("users")
+}
+
+// ── OTP TOKENS TABLE ────────────────────────────────────────
+model OtpToken {
+  id         String     @id @default(uuid())
+  userId     String
+  tokenHash  String
+  type       OtpType
+  expiresAt  DateTime
+  attempts   Int        @default(0)
+  used       Boolean    @default(false)
+  createdAt  DateTime   @default(now())
+
+  // Relation back to User
+  user       User       @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, type, used])
+  @@map("otp_tokens")
+}
+
+// ── ENUMS (fixed value options) ─────────────────────────────
+enum Role {
+  ADMIN
+  MEMBER
+}
+
+enum OtpType {
+  EMAIL_VERIFY
+  PASSWORD_RESET
+}

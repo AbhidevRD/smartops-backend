@@ -2,26 +2,30 @@ import express from 'express';
 import cors from 'cors';
 import dotenv from 'dotenv';
 
-// Load environment variables from .env file
+import prisma from './lib/prisma.js';
+
+import authRoutes from './routes/auth.routes.js';
+import projectRoutes from './routes/project.routes.js';
+import taskRoutes from './routes/task.routes.js';
+import dashboardRoutes from './routes/dashboard.routes.js';
+import commentRoutes from './routes/comment.routes.js';
+import activityRoutes from './routes/activity.routes.js';
+import adminRoutes from './routes/admin.routes.js';
+import reportRoutes from './routes/report.routes.js';
+import notificationRoutes from './routes/notification.routes.js';
+import aiRoutes from './routes/ai.routes.js';
 dotenv.config();
 
 const app = express();
 
-// ── MIDDLEWARE ──────────────────────────────────────────────
-// Allow JSON data in request body
 app.use(express.json());
-
-// Allow URL-encoded form data
 app.use(express.urlencoded({ extended: true }));
 
-// CORS: Allow requests from your frontend (Next.js)
 app.use(cors({
   origin: process.env.FRONTEND_URL || 'http://localhost:3001',
   credentials: true,
 }));
 
-// ── HEALTH CHECK ROUTE ──────────────────────────────────────
-// A simple route to test if the server is running
 app.get('/', (req, res) => {
   res.json({
     message: 'SmartOps AI Backend is running!',
@@ -29,30 +33,58 @@ app.get('/', (req, res) => {
     timestamp: new Date().toISOString(),
   });
 });
-// ── DATABASE TEST ROUTE (remove this after testing) ────────
-import prisma from './lib/prisma.js';
 
 app.get('/test-db', async (req, res) => {
   try {
-    // Count how many users exist in the database
     const count = await prisma.user.count();
-    res.json({ message: 'Database connected!', userCount: count });
+
+    res.json({
+      message: 'Database connected!',
+      userCount: count
+    });
+
   } catch (error) {
-    res.status(500).json({ error: 'Database connection failed', detail: error.message });
+    res.status(500).json({
+      error: 'Database connection failed',
+      detail: error.message
+    });
   }
 });
 
-// ── 404 HANDLER ─────────────────────────────────────────────
-// If no route matches, send this response
+app.use('/api/auth', authRoutes);
+app.use('/api/projects', projectRoutes);
+app.use('/api/tasks', taskRoutes);
+app.use('/api/dashboard', dashboardRoutes);
+app.use('/api/comments', commentRoutes);
+app.use('/api/activity', activityRoutes);
+app.use('/api/admin', adminRoutes);
+app.use('/api/reports', reportRoutes);
+app.use('/api/notifications', notificationRoutes);
+app.use('/api/ai', aiRoutes);
+import helmet from 'helmet';
+import morgan from 'morgan';
+import rateLimit from 'express-rate-limit';
+
+app.use(helmet());
+app.use(morgan('dev'));
+
+app.use(rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: 100
+}));
+
 app.use((req, res) => {
-  res.status(404).json({ error: 'Route not found' });
+  res.status(404).json({
+    error: 'Route not found'
+  });
 });
 
-// ── GLOBAL ERROR HANDLER ────────────────────────────────────
-// Catches any unhandled errors from routes
 app.use((err, req, res, next) => {
-console.error('Unhandled error:', err.message);
-  res.status(500).json({ error: 'Internal server error' });
+  console.error('Unhandled error:', err.message);
+
+  res.status(500).json({
+    error: 'Internal server error'
+  });
 });
 
 export default app;

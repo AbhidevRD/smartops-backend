@@ -56,8 +56,13 @@ export const updateTaskStatus = async(req,res)=>{
   const { status } = req.body;
 
   const task = await prisma.task.update({
-    where:{ id },
-    data:{ status }
+    where:{ id: task.assigneeId },
+    data:{  status,
+  completedAt: status === 'DONE'
+    ? new Date()
+    : null } ,xpPoints:{
+      increment:10
+    }
   });
 
   res.json(task);

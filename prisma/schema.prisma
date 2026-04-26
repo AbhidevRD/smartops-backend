@@ -29,6 +29,8 @@ model User {
   comments TaskComment[]
   logs     ActivityLog[]
   notifications Notification[]
+  focusSessions FocusSession[]
+  badges        Badge[]
   // Relations — will be filled as you add more features
   otpTokens     OtpToken[]
   @@map("users")
@@ -103,6 +105,8 @@ model Task {
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
   comments TaskComment[]
+  estimatedHours Int @default(0)
+  completedAt DateTime?
 
   project     Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
   assignee    User?   @relation(fields: [assigneeId], references: [id])
@@ -147,6 +151,38 @@ model Notification {
   user      User @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@map("notifications")
+}
+
+model FocusSession {
+  id         String   @id @default(uuid())
+  userId     String
+  taskId     String?
+  minutes    Int
+  createdAt  DateTime @default(now())
+
+  user       User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@map("focus_sessions")
+}
+
+model Badge {
+  id         String   @id @default(uuid())
+  userId     String
+  name       String
+  createdAt  DateTime @default(now())
+
+  user       User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@map("badges")
+}
+
+model TaskDependency {
+  id            String   @id @default(uuid())
+  taskId        String
+  dependsOnId   String
+  createdAt     DateTime @default(now())
+
+  @@map("task_dependencies")
 }
 
 enum ProjectRole {

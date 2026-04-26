@@ -1,6 +1,7 @@
 import app from './app.js';
 import { createServer } from 'http';
 import { Server } from 'socket.io';
+import './jobs/standup.job.js';
 
 const PORT = process.env.PORT || 3000;
 

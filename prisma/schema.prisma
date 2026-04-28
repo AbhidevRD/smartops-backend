@@ -1,6 +1,3 @@
-// Prisma Schema — SmartOps AI
-// This file defines ALL your database tables
-
 generator client {
   provider = "prisma-client-js"
 }
@@ -11,105 +8,88 @@ datasource db {
   directUrl = env("DIRECT_URL")
 }
 
-// ── USERS TABLE ─────────────────────────────────────────────
 model User {
-  id            String    @id @default(uuid())
-  email         String    @unique
-  passwordHash  String
-  name          String
-  role          Role      @default(MEMBER)
-  isVerified    Boolean   @default(false)
-  avatarUrl     String?
-  xpPoints      Int       @default(0)
-  createdAt     DateTime  @default(now())
-  updatedAt     DateTime  @updatedAt
-  ownedProjects Project[]
+  id             String          @id @default(uuid())
+  email          String          @unique
+  passwordHash   String
+  name           String
+  role           Role            @default(MEMBER)
+  isVerified     Boolean         @default(false)
+  avatarUrl      String?
+  xpPoints       Int             @default(0)
+  createdAt      DateTime        @default(now())
+  updatedAt      DateTime        @updatedAt
+  logs           ActivityLog[]
+  badges         Badge[]
+  focusSessions  FocusSession[]
+  notifications  Notification[]
+  otpTokens      OtpToken[]
   projectMembers ProjectMember[]
-  assignedTasks Task[]
-  comments TaskComment[]
-  logs     ActivityLog[]
-  notifications Notification[]
-  focusSessions FocusSession[]
-  badges        Badge[]
-  // Relations — will be filled as you add more features
-  otpTokens     OtpToken[]
+  ownedProjects  Project[]
+  comments       TaskComment[]
+  assignedTasks  Task[]
+
   @@map("users")
 }
 
-// ── OTP TOKENS TABLE ────────────────────────────────────────
 model OtpToken {
-  id         String     @id @default(uuid())
-  userId     String
-  tokenHash  String
-  type       OtpType
-  expiresAt  DateTime
-  attempts   Int        @default(0)
-  used       Boolean    @default(false)
-  createdAt  DateTime   @default(now())
-
-  // Relation back to User
-  user       User       @relation(fields: [userId], references: [id], onDelete: Cascade)
+  id        String   @id @default(uuid())
+  userId    String
+  tokenHash String
+  type      OtpType
+  expiresAt DateTime
+  attempts  Int      @default(0)
+  used      Boolean  @default(false)
+  createdAt DateTime @default(now())
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@index([userId, type, used])
   @@map("otp_tokens")
 }
 
-// ── ENUMS (fixed value options) ─────────────────────────────
-enum Role {
-  ADMIN
-  MEMBER
-}
-
-enum OtpType {
-  EMAIL_VERIFY
-  PASSWORD_RESET
-}
 model Project {
-  id          String   @id @default(uuid())
+  id          String          @id @default(uuid())
   name        String
   description String?
   ownerId     String
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
-
-  owner       User     @relation(fields: [ownerId], references: [id], onDelete: Cascade)
+  createdAt   DateTime        @default(now())
+  updatedAt   DateTime        @updatedAt
   members     ProjectMember[]
+  owner       User            @relation(fields: [ownerId], references: [id], onDelete: Cascade)
   tasks       Task[]
 
   @@map("projects")
 }
 
 model ProjectMember {
-  id        String   @id @default(uuid())
+  id        String      @id @default(uuid())
   projectId String
   userId    String
   role      ProjectRole @default(MEMBER)
-  createdAt DateTime @default(now())
-
-  project   Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
-  user      User    @relation(fields: [userId], references: [id], onDelete: Cascade)
+  createdAt DateTime    @default(now())
+  project   Project     @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  user      User        @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@unique([projectId, userId])
   @@map("project_members")
 }
 
 model Task {
-  id          String   @id @default(uuid())
-  title       String
-  description String?
-  status      TaskStatus @default(TODO)
-  priority    TaskPriority @default(MEDIUM)
-  deadline    DateTime?
-  projectId   String
-  assigneeId  String?
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
-  comments TaskComment[]
-  estimatedHours Int @default(0)
-  completedAt DateTime?
-
-  project     Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
-  assignee    User?   @relation(fields: [assigneeId], references: [id])
+  id             String        @id @default(uuid())
+  title          String
+  description    String?
+  status         TaskStatus    @default(TODO)
+  priority       TaskPriority  @default(MEDIUM)
+  deadline       DateTime?
+  projectId      String
+  assigneeId     String?
+  createdAt      DateTime      @default(now())
+  updatedAt      DateTime      @updatedAt
+  completedAt    DateTime?
+  estimatedHours Int           @default(0)
+  comments       TaskComment[]
+  assignee       User?         @relation(fields: [assigneeId], references: [id])
+  project        Project       @relation(fields: [projectId], references: [id], onDelete: Cascade)
 
   @@map("tasks")
 }
@@ -120,9 +100,8 @@ model TaskComment {
   taskId    String
   userId    String
   createdAt DateTime @default(now())
-
-  task      Task @relation(fields: [taskId], references: [id], onDelete: Cascade)
-  user      User @relation(fields: [userId], references: [id], onDelete: Cascade)
+  task      Task     @relation(fields: [taskId], references: [id], onDelete: Cascade)
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@map("task_comments")
 }
@@ -134,8 +113,7 @@ model ActivityLog {
   userId    String?
   projectId String?
   createdAt DateTime @default(now())
-
-  user      User? @relation(fields: [userId], references: [id])
+  user      User?    @relation(fields: [userId], references: [id])
 
   @@map("activity_logs")
 }
@@ -147,42 +125,71 @@ model Notification {
   isRead    Boolean  @default(false)
   userId    String
   createdAt DateTime @default(now())
-
-  user      User @relation(fields: [userId], references: [id], onDelete: Cascade)
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@map("notifications")
 }
 
 model FocusSession {
-  id         String   @id @default(uuid())
-  userId     String
-  taskId     String?
-  minutes    Int
-  createdAt  DateTime @default(now())
-
-  user       User @relation(fields: [userId], references: [id], onDelete: Cascade)
+  id        String   @id @default(uuid())
+  userId    String
+  taskId    String?
+  minutes   Int
+  createdAt DateTime @default(now())
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@map("focus_sessions")
 }
 
 model Badge {
-  id         String   @id @default(uuid())
-  userId     String
-  name       String
-  createdAt  DateTime @default(now())
-
-  user       User @relation(fields: [userId], references: [id], onDelete: Cascade)
+  id        String   @id @default(uuid())
+  userId    String
+  name      String
+  createdAt DateTime @default(now())
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@map("badges")
 }
 
 model TaskDependency {
-  id            String   @id @default(uuid())
-  taskId        String
-  dependsOnId   String
-  createdAt     DateTime @default(now())
+  id          String   @id @default(uuid())
+  taskId      String
+  dependsOnId String
+  createdAt   DateTime @default(now())
 
   @@map("task_dependencies")
+}
+model EmailLog {
+  id         String   @id @default(uuid())
+  subject    String
+  message    String
+  recipient  String
+  status     String
+  sentById   String
+  createdAt  DateTime @default(now())
+
+  @@map("email_logs")
+}
+
+model GroupMessage {
+  id         String   @id @default(uuid())
+  projectId  String
+  senderId   String
+  message    String
+  isRead     Boolean  @default(false)
+  createdAt  DateTime @default(now())
+
+  @@map("group_messages")
+}
+
+enum Role {
+  ADMIN
+  MEMBER
+}
+
+enum OtpType {
+  EMAIL_VERIFY
+  PASSWORD_RESET
 }
 
 enum ProjectRole {

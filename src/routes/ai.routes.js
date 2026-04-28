@@ -15,7 +15,9 @@ import {
  awardBadges,
  leaderboard,
  dependencyGraph,
-sprintPlanner
+sprintPlanner,
+notesToTasks,
+voiceCommand
 } from '../controllers/ai.controller.js';
 
 const router = express.Router();
@@ -79,4 +81,16 @@ router.post(
   '/sprint-plan',
   auth,
   sprintPlanner
+);
+
+router.post(
+  '/notes-to-tasks',
+  auth,
+  notesToTasks
+);
+
+router.post(
+  '/voice-command',
+  auth,
+  voiceCommand
 );

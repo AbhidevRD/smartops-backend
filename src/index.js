@@ -39,6 +39,39 @@ io.on('connection',(socket)=>{
   });
 });
 
+io.on('connection', (socket) => {
+
+  socket.on(
+    'join-project',
+    (projectId)=>{
+      socket.join(projectId);
+    }
+  );
+
+  socket.on(
+    'send-message',
+    (data)=>{
+      io.to(data.projectId)
+        .emit(
+          'new-message',
+          data
+        );
+    }
+  );
+
+  socket.on(
+    'typing',
+    (data)=>{
+      socket.to(data.projectId)
+        .emit(
+          'typing',
+          data.user
+        );
+    }
+  );
+
+});
+
 httpServer.listen(PORT, ()=>{
   console.log(`Server running on ${PORT}`);
 });

@@ -569,3 +569,129 @@ export const sprintPlanner = async (req,res)=>{
     });
   }
 };
+
+export const notesToTasks =
+async(req,res)=>{
+  try{
+
+    const {
+      projectId,
+      notes
+    } = req.body;
+
+    const prompt = `
+Extract action items from these meeting notes.
+
+Return ONLY JSON array.
+
+[
+ { "title":"", "priority":"LOW" }
+]
+
+Notes:
+${notes}
+`;
+
+    const aiResult =
+      await askGroq(prompt);
+
+    let tasks = [];
+
+    try{
+      tasks = JSON.parse(aiResult);
+    }catch{
+      return res.status(400).json({
+        error:'AI parse failed',
+        raw: aiResult
+      });
+    }
+
+    const created = [];
+
+    for(const item of tasks){
+
+      const task =
+        await prisma.task.create({
+          data:{
+            title:item.title,
+            priority:
+              item.priority || 'MEDIUM',
+            projectId
+          }
+        });
+
+      created.push(task);
+    }
+
+    res.json({
+      success:true,
+      createdCount:
+        created.length,
+      tasks:created
+    });
+
+  }catch(error){
+    res.status(500).json({
+      error:error.message
+    });
+  }
+};
+
+export const voiceCommand =
+async(req,res)=>{
+  try{
+
+    const {
+      projectId,
+      command
+    } = req.body;
+
+    const prompt = `
+Convert this spoken command
+into JSON.
+
+Return:
+{
+ "title":"",
+ "priority":"LOW/MEDIUM/HIGH"
+}
+
+Command:
+${command}
+`;
+
+    const ai =
+      await askGroq(prompt);
+
+    let data = {};
+
+    try{
+      data = JSON.parse(ai);
+    }catch{
+      return res.status(400).json({
+        error:'AI parse failed',
+        raw:ai
+      });
+    }
+
+    const task =
+      await prisma.task.create({
+        data:{
+          title:data.title,
+          priority:
+            data.priority || 'MEDIUM',
+          projectId
+        }
+      });
+
+    res.json({
+      success:true,
+      task
+    });
+
+  }catch(error){
+    res.status(500).json({
+      error:error.message
+    });
+  }
+};

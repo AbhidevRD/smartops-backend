@@ -1,6 +1,6 @@
-import jwt from 'jsonwebtoken';
+import { verifyAuthToken } from '../utils/authToken.js';
 
-export default function auth(req,res,next){
+export default async function auth(req,res,next){
   try{
     const header = req.headers.authorization;
 
@@ -10,18 +10,13 @@ export default function auth(req,res,next){
 
     const token = header.split(' ')[1];
 
-    const decoded = jwt.verify(
-      token,
-      process.env.JWT_SECRET
-    );
-
-    req.user = decoded;
+    req.user = await verifyAuthToken(token);
 
     next();
 
   }catch(error){
     return res.status(401).json({
-      error:'Invalid token'
+      error:error.message || 'Invalid token'
     });
   }
 }

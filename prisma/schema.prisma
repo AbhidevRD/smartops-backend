@@ -8,57 +8,127 @@ datasource db {
   directUrl = env("DIRECT_URL")
 }
 
-model User {
-  id             String          @id @default(uuid())
-  email          String          @unique
-  passwordHash   String
-  name           String
-  role           Role            @default(MEMBER)
-  isVerified     Boolean         @default(false)
-  avatarUrl      String?
-  xpPoints       Int             @default(0)
-  createdAt      DateTime        @default(now())
-  updatedAt      DateTime        @updatedAt
-  logs           ActivityLog[]
-  badges         Badge[]
-  focusSessions  FocusSession[]
-  notifications  Notification[]
-  otpTokens      OtpToken[]
-  projectMembers ProjectMember[]
-  ownedProjects  Project[]
-  comments       TaskComment[]
-  assignedTasks  Task[]
+// Prisma Schema: PascalCase models with @map to lowercase DB table names
+// This allows code to use prisma.user, prisma.task, etc. while DB uses lowercase tables
 
-  @@map("users")
+model ActivityLog {
+  id        String   @id @default(uuid())
+  action    String
+  details   String?
+  userId    String?
+  projectId String?
+  createdAt DateTime @default(now())
+  user      User?    @relation(fields: [userId], references: [id])
+
+  @@map("activity_logs")
 }
 
-model OtpToken {
+model Badge {
+  id          String        @id @default(uuid())
+  name        String        @unique
+  description String
+  icon        String
+  createdAt   DateTime      @default(now())
+  userBadges  UserBadge[]
+
+  @@map("badges")
+}
+
+model EmailLog {
+  id        String   @id @default(uuid())
+  subject   String
+  message   String
+  recipient String
+  status    String
+  sentById  String
+  createdAt DateTime @default(now())
+
+  @@map("email_logs")
+}
+
+model OtpCode {
+  id        String   @id @default(uuid())
+  email     String
+  code      String
+  expiresAt DateTime
+  used      Boolean  @default(false)
+  createdAt DateTime @default(now())
+
+  @@index([email])
+  @@map("otp_codes")
+}
+
+model File {
+  id           String   @id @default(uuid())
+  url          String
+  name         String
+  type         String
+  size         Int
+  taskId       String?
+  projectId    String
+  uploadedById String
+  createdAt    DateTime @default(now())
+  description  String?
+  tags         String?
+  versionNote  String?
+  project      Project  @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  task         Task?    @relation(fields: [taskId], references: [id])
+  uploadedBy   User     @relation(fields: [uploadedById], references: [id], onDelete: Cascade)
+
+  @@map("files")
+}
+
+model FocusSession {
   id        String   @id @default(uuid())
   userId    String
-  tokenHash String
-  type      OtpType
-  expiresAt DateTime
-  attempts  Int      @default(0)
-  used      Boolean  @default(false)
+  taskId    String?
+  minutes   Int
   createdAt DateTime @default(now())
   user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
 
-  @@index([userId, type, used])
-  @@map("otp_tokens")
+  @@map("focus_sessions")
 }
 
-model Project {
-  id          String          @id @default(uuid())
-  name        String
-  description String?
-  ownerId     String
-  createdAt   DateTime        @default(now())
-  updatedAt   DateTime        @updatedAt
-  members     ProjectMember[]
-  owner       User            @relation(fields: [ownerId], references: [id], onDelete: Cascade)
-  tasks       Task[]
+model GroupMessage {
+  id        String   @id @default(uuid())
+  projectId String
+  senderId  String
+  message   String?
+  isRead    Boolean  @default(false)
+  createdAt DateTime @default(now())
+  fileName  String?
+  fileType  String?
+  fileUrl   String?
 
-  @@map("projects")
+  @@map("group_messages")
+}
+
+model Notification {
+  id        String   @id @default(uuid())
+  title     String
+  message   String
+  isRead    Boolean  @default(false)
+  userId    String
+  createdAt DateTime @default(now())
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@map("notifications")
+}
+
+model ProjectInvite {
+  id        String       @id @default(uuid())
+  email     String
+  projectId String
+  invitedById String
+  status    InviteStatus @default(PENDING)
+  token     String       @unique
+  expiresAt DateTime
+  createdAt DateTime     @default(now())
+  invitedBy User         @relation(fields: [invitedById], references: [id], onDelete: Cascade)
+  project   Project      @relation(fields: [projectId], references: [id], onDelete: Cascade)
+
+  @@unique([email, projectId])
+  @@map("project_invites")
 }
 
 model ProjectMember {
@@ -74,24 +144,22 @@ model ProjectMember {
   @@map("project_members")
 }
 
-model Task {
-  id             String        @id @default(uuid())
-  title          String
-  description    String?
-  status         TaskStatus    @default(TODO)
-  priority       TaskPriority  @default(MEDIUM)
-  deadline       DateTime?
-  projectId      String
-  assigneeId     String?
-  createdAt      DateTime      @default(now())
-  updatedAt      DateTime      @updatedAt
-  completedAt    DateTime?
-  estimatedHours Int           @default(0)
-  comments       TaskComment[]
-  assignee       User?         @relation(fields: [assigneeId], references: [id])
-  project        Project       @relation(fields: [projectId], references: [id], onDelete: Cascade)
+model Project {
+  id              String           @id @default(uuid())
+  name            String
+  description     String?
+  ownerId         String
+  createdAt       DateTime         @default(now())
+  updatedAt       DateTime         @updatedAt
+  joinCode        String           @unique
+  files           File[]
+  invites         ProjectInvite[]
+  members         ProjectMember[]
+  owner           User             @relation(fields: [ownerId], references: [id], onDelete: Cascade)
+  tasks           Task[]
 
-  @@map("tasks")
+  @@index([joinCode])
+  @@map("projects")
 }
 
 model TaskComment {
@@ -106,51 +174,6 @@ model TaskComment {
   @@map("task_comments")
 }
 
-model ActivityLog {
-  id        String   @id @default(uuid())
-  action    String
-  details   String?
-  userId    String?
-  projectId String?
-  createdAt DateTime @default(now())
-  user      User?    @relation(fields: [userId], references: [id])
-
-  @@map("activity_logs")
-}
-
-model Notification {
-  id        String   @id @default(uuid())
-  title     String
-  message   String
-  isRead    Boolean  @default(false)
-  userId    String
-  createdAt DateTime @default(now())
-  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
-
-  @@map("notifications")
-}
-
-model FocusSession {
-  id        String   @id @default(uuid())
-  userId    String
-  taskId    String?
-  minutes   Int
-  createdAt DateTime @default(now())
-  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
-
-  @@map("focus_sessions")
-}
-
-model Badge {
-  id        String   @id @default(uuid())
-  userId    String
-  name      String
-  createdAt DateTime @default(now())
-  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
-
-  @@map("badges")
-}
-
 model TaskDependency {
   id          String   @id @default(uuid())
   taskId      String
@@ -159,27 +182,81 @@ model TaskDependency {
 
   @@map("task_dependencies")
 }
-model EmailLog {
-  id         String   @id @default(uuid())
-  subject    String
-  message    String
-  recipient  String
-  status     String
-  sentById   String
-  createdAt  DateTime @default(now())
 
-  @@map("email_logs")
+model Task {
+  id             String        @id @default(uuid())
+  title          String
+  description    String?
+  status         TaskStatus    @default(TODO)
+  priority       TaskPriority  @default(MEDIUM)
+  deadline       DateTime?
+  projectId      String
+  assigneeId     String?
+  createdAt      DateTime      @default(now())
+  updatedAt      DateTime      @updatedAt
+  completedAt    DateTime?
+  estimatedHours Int           @default(0)
+  files          File[]
+  comments       TaskComment[]
+  assignee       User?         @relation(fields: [assigneeId], references: [id])
+  project        Project       @relation(fields: [projectId], references: [id], onDelete: Cascade)
+
+  @@map("tasks")
 }
 
-model GroupMessage {
+model UserBadge {
   id         String   @id @default(uuid())
-  projectId  String
-  senderId   String
-  message    String
-  isRead     Boolean  @default(false)
+  userId     String
+  badgeId    String
+  assignedById String
   createdAt  DateTime @default(now())
+  assignedBy User     @relation("userBadgesAssignedBy", fields: [assignedById], references: [id])
+  badge      Badge    @relation(fields: [badgeId], references: [id], onDelete: Cascade)
+  user       User     @relation("userBadges", fields: [userId], references: [id], onDelete: Cascade)
 
-  @@map("group_messages")
+  @@unique([userId, badgeId])
+  @@map("user_badges")
+}
+
+model User {
+  id                   String          @id @default(uuid())
+  email                String          @unique
+  passwordHash         String?
+  name                 String
+  role                 Role            @default(MEMBER)
+  avatarUrl            String?
+  xpPoints             Int             @default(0)
+  createdAt            DateTime        @default(now())
+  updatedAt            DateTime        @updatedAt
+  oauthProvider        String?
+  oauthId              String?
+  activityLogs         ActivityLog[]
+  files                File[]
+  focusSessions        FocusSession[]
+  notifications        Notification[]
+  invites              ProjectInvite[]
+  projectMembers       ProjectMember[]
+  ownedProjects        Project[]
+  taskComments         TaskComment[]
+  tasks                Task[]
+  assignedBadges       UserBadge[]     @relation("userBadgesAssignedBy")
+  userBadges           UserBadge[]     @relation("userBadges")
+
+  @@unique([oauthProvider, oauthId])
+  @@map("users")
+}
+
+enum InviteStatus {
+  PENDING
+  ACCEPTED
+  REJECTED
+  EXPIRED
+}
+
+enum ProjectRole {
+  OWNER
+  MEMBER
+  ADMIN
 }
 
 enum Role {
@@ -187,24 +264,14 @@ enum Role {
   MEMBER
 }
 
-enum OtpType {
-  EMAIL_VERIFY
-  PASSWORD_RESET
-}
-
-enum ProjectRole {
-  OWNER
-  MEMBER
+enum TaskPriority {
+  LOW
+  MEDIUM
+  HIGH
 }
 
 enum TaskStatus {
   TODO
   IN_PROGRESS
   DONE
-}
-
-enum TaskPriority {
-  LOW
-  MEDIUM
-  HIGH
 }

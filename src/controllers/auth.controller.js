@@ -1,23 +1,56 @@
 import prisma from '../lib/prisma.js';
 import bcrypt from 'bcrypt';
-import jwt from 'jsonwebtoken';
+import { signAuthToken } from '../utils/authToken.js';
 import {
-  sendOtpEmail,
-  sendResetOtpEmail
+  sendAdminEmail,
+  sendOTPEmail
 } from '../services/email.service.js';
 
+/**
+ * Generate a cryptographically random 6-digit OTP
+ */
+function generateOTP() {
+  return String(Math.floor(100000 + Math.random() * 900000));
+}
 
 export const signup = async (req, res) => {
   try {
     const { name, email, password } = req.body;
+
+    // Validate required fields
+    if (!email || !name || !password) {
+      return res.status(400).json({
+        error: 'Email, name, and password are required'
+      });
+    }
+
+    // Validate email format
+    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+    if (!emailRegex.test(email)) {
+      return res.status(400).json({
+        error: 'Invalid email format'
+      });
+    }
+
+    // Validate password strength
+    if (password.length < 6) {
+      return res.status(400).json({
+        error: 'Password must be at least 6 characters'
+      });
+    }
 
     const existing = await prisma.user.findUnique({
       where: { email }
     });
 
     if (existing) {
-      return res.status(400).json({
-        error: 'User already exists'
+      if (!existing.passwordHash) {
+        return res.status(409).json({
+          error: 'This email is linked to an OAuth account. Please sign in with your OAuth provider or use "Forgot Password" to set a password.'
+        });
+      }
+      return res.status(409).json({
+        error: 'User already exists with this email'
       });
     }
 
@@ -27,112 +60,29 @@ export const signup = async (req, res) => {
       data: {
         name,
         email,
-        passwordHash,
-        isVerified: process.env.NODE_ENV === 'development' ? true : false
+        passwordHash
       }
     });
 
-    const otp = Math.floor(
-      100000 + Math.random() * 900000
-    ).toString();
+    // Generate JWT immediately on signup
+    const token = signAuthToken(user);
 
-    const tokenHash = await bcrypt.hash(otp, 10);
-
-    await prisma.otpToken.create({
-      data: {
-        userId: user.id,
-        tokenHash,
-        type: 'EMAIL_VERIFY',
-        expiresAt: new Date(
-          Date.now() + 10 * 60 * 1000
-        )
+    res.status(201).json({
+      message: 'Signup successful',
+      token,
+      user: {
+        id: user.id,
+        name: user.name,
+        email: user.email,
+        role: user.role
       }
     });
 
-    await sendOtpEmail(email, otp);
-
-    const response = {
-      message: 'Signup successful. OTP sent.'
-    };
-
-    // In development, return OTP for testing and auto-verify
-    if (process.env.NODE_ENV === 'development') {
-      response.otp = otp;
-      response.message = 'Dev mode: Account auto-verified. You can login directly.';
-    }
-
-    res.json(response);
-
   } catch (error) {
+    console.error('Signup error:', error.message);
     res.status(500).json({
-      error: error.message
-    });
-  }
-};
-
-export const verifyOtp = async (req, res) => {
-  try {
-    const { email, otp } = req.body;
-
-    const user = await prisma.user.findUnique({
-      where: { email }
-    });
-
-    if (!user) {
-      return res.status(404).json({
-        error: 'User not found'
-      });
-    }
-
-    const record = await prisma.otpToken.findFirst({
-      where: {
-        userId: user.id,
-        type: 'EMAIL_VERIFY',
-        used: false
-      },
-      orderBy: { createdAt: 'desc' }
-    });
-
-    if (!record) {
-      return res.status(400).json({
-        error: 'OTP not found'
-      });
-    }
-
-    if (record.expiresAt < new Date()) {
-      return res.status(400).json({
-        error: 'OTP expired'
-      });
-    }
-
-    const valid = await bcrypt.compare(
-      otp,
-      record.tokenHash
-    );
-
-    if (!valid) {
-      return res.status(400).json({
-        error: 'Invalid OTP'
-      });
-    }
-
-    await prisma.user.update({
-      where: { id: user.id },
-      data: { isVerified: true }
-    });
-
-    await prisma.otpToken.update({
-      where: { id: record.id },
-      data: { used: true }
-    });
-
-    res.json({
-      message: 'Email verified'
-    });
-
-  } catch (error) {
-    res.status(500).json({
-      error: error.message
+      error: 'Signup failed. Please try again.',
+      details: process.env.NODE_ENV === 'development' ? error.message : undefined
     });
   }
 };
@@ -141,13 +91,26 @@ export const login = async (req, res) => {
   try {
     const { email, password } = req.body;
 
+    if (!email || !password) {
+      return res.status(400).json({
+        error: 'Email and password are required'
+      });
+    }
+
     const user = await prisma.user.findUnique({
       where: { email }
     });
 
     if (!user) {
-      return res.status(400).json({
+      return res.status(401).json({
         error: 'Invalid credentials'
+      });
+    }
+
+    // OAuth-only users cannot login with password
+    if (!user.passwordHash) {
+      return res.status(401).json({
+        error: 'This account uses OAuth login. Please sign in with your OAuth provider.'
       });
     }
 
@@ -157,35 +120,12 @@ export const login = async (req, res) => {
     );
 
     if (!ok) {
-      return res.status(400).json({
+      return res.status(401).json({
         error: 'Invalid credentials'
       });
     }
 
-    // In development mode, auto-verify users for easier testing
-    if (!user.isVerified && process.env.NODE_ENV !== 'development') {
-      return res.status(400).json({
-        error: 'Verify email first'
-      });
-    }
-
-    // Auto-verify in development mode
-    if (!user.isVerified && process.env.NODE_ENV === 'development') {
-      await prisma.user.update({
-        where: { id: user.id },
-        data: { isVerified: true }
-      });
-    }
-
-    const token = jwt.sign(
-      {
-        id: user.id,
-        email: user.email,
-        role: user.role
-      },
-      process.env.JWT_SECRET,
-      { expiresIn: '7d' }
-    );
+    const token = signAuthToken(user);
 
     res.json({
       token,
@@ -198,198 +138,250 @@ export const login = async (req, res) => {
     });
 
   } catch (error) {
+    console.error('Login error:', error.message);
     res.status(500).json({
-      error: error.message
+      error: 'Login failed. Please try again.',
+      details: process.env.NODE_ENV === 'development' ? error.message : undefined
     });
   }
 };
 
-export const resendOtp = async (req,res)=>{
-  try{
-
+export const forgotPassword = async (req, res) => {
+  try {
     const { email } = req.body;
 
-    const user =
-      await prisma.user.findUnique({
-        where:{ email }
-      });
+    if (!email) {
+      return res.status(400).json({ error: 'Email is required' });
+    }
 
-    if(!user){
-      return res.status(404).json({
-        error:'User not found'
+    const user = await prisma.user.findUnique({ where: { email } });
+
+    // Always return success to prevent email enumeration
+    if (!user) {
+      return res.status(200).json({
+        success: true,
+        message: 'If an account exists with this email, you will receive an OTP code'
       });
     }
 
-    const otp =
-      Math.floor(
-        100000 + Math.random()*900000
-      ).toString();
-
-    const tokenHash =
-      await bcrypt.hash(otp,10);
-
-    await prisma.otpToken.create({
-      data:{
-        userId:user.id,
-        tokenHash,
-        type:'EMAIL_VERIFY',
-        expiresAt:
-          new Date(
-            Date.now()+10*60*1000
-          )
-      }
+    // Invalidate any existing unused OTPs for this email
+    await prisma.otpCode.updateMany({
+      where: { email, used: false },
+      data: { used: true }
     });
 
-    await sendOtpEmail(email, otp);
+    const otp = generateOTP();
+    const expiresAt = new Date(Date.now() + 10 * 60 * 1000); // 10 minutes
 
-    const response = {
-      success:true,
-      message:'OTP resent'
-    };
+    await prisma.otpCode.create({
+      data: { email, code: otp, expiresAt }
+    });
 
-    if (process.env.NODE_ENV !== 'production') {
-      response.otp = otp;
+    try {
+      await sendOTPEmail(email, otp, user.name);
+    } catch (emailError) {
+      console.error('OTP email send failed:', emailError.message);
+      // Still return success so user isn't aware if email exists
     }
 
-    res.json(response);
+    return res.status(200).json({
+      success: true,
+      message: 'If an account exists with this email, you will receive an OTP code'
+    });
 
-  }catch(error){
+  } catch (error) {
+    console.error('Forgot password error:', error.message);
+    const isTableMissing = error.message?.includes('does not exist') || error.code === 'P2021';
     res.status(500).json({
-      error:error.message
+      error: isTableMissing
+        ? 'Password reset is not yet configured. Please contact support.'
+        : 'An error occurred. Please try again.'
     });
   }
 };
 
-export const forgotPassword = async (req,res)=>{
-  try{
+export const verifyOTP = async (req, res) => {
+  try {
+    const { email, otp } = req.body;
 
-    const { email } = req.body;
-
-    const user =
-      await prisma.user.findUnique({
-        where:{ email }
-      });
-
-    if(!user){
-      return res.status(404).json({
-        error:'User not found'
-      });
+    if (!email || !otp) {
+      return res.status(400).json({ error: 'Email and OTP are required' });
     }
 
-    const otp =
-      Math.floor(
-        100000 + Math.random()*900000
-      ).toString();
-
-    const tokenHash =
-      await bcrypt.hash(otp,10);
-
-    await prisma.otpToken.create({
-      data:{
-        userId:user.id,
-        tokenHash,
-        type:'PASSWORD_RESET',
-        expiresAt:
-          new Date(
-            Date.now()+10*60*1000
-          )
-      }
+    const record = await prisma.otpCode.findFirst({
+      where: {
+        email,
+        code: otp,
+        used: false,
+        expiresAt: { gt: new Date() }
+      },
+      orderBy: { createdAt: 'desc' }
     });
 
-    await sendResetOtpEmail(
-      email,
-      otp
-    );
-
-    const response = {
-      success:true,
-      message:'Reset OTP sent'
-    };
-
-    if (process.env.NODE_ENV !== 'production') {
-      response.otp = otp;
+    if (!record) {
+      return res.status(400).json({
+        success: false,
+        error: 'Invalid or expired OTP. Please request a new one.'
+      });
     }
 
-    res.json(response);
+    // Mark OTP as used (consumed after verification)
+    await prisma.otpCode.update({
+      where: { id: record.id },
+      data: { used: true }
+    });
 
-  }catch(error){
+    return res.json({
+      success: true,
+      message: 'OTP verified successfully. You may now reset your password.',
+      email
+    });
+
+  } catch (error) {
+    console.error('Verify OTP error:', error.message);
+    const isTableMissing = error.message?.includes('does not exist') || error.code === 'P2021';
     res.status(500).json({
-      error:error.message
+      error: isTableMissing
+        ? 'Password reset is not yet configured. Please contact support.'
+        : 'Verification failed. Please try again.'
     });
   }
 };
 
-export const resetPassword = async(req,res)=>{
-  try{
+export const resetPasswordWithOTP = async (req, res) => {
+  try {
+    const { email, otp, newPassword } = req.body;
 
-    const {
-      email,
-      otp,
-      password
-    } = req.body;
-
-    const user =
-      await prisma.user.findUnique({
-        where:{ email }
-      });
-
-    if(!user){
-      return res.status(404).json({
-        error:'User not found'
-      });
+    if (!email || !otp || !newPassword) {
+      return res.status(400).json({ error: 'Email, OTP, and new password are required' });
     }
 
-    const token =
-      await prisma.otpToken.findFirst({
-        where:{
-          userId:user.id,
-          type:'PASSWORD_RESET',
-          used:false
-        },
-        orderBy:{
-          createdAt:'desc'
-        }
-      });
+    if (newPassword.length < 6) {
+      return res.status(400).json({ error: 'Password must be at least 6 characters' });
+    }
 
-    if(!token){
+    // Re-verify: OTP must match email+code and be created within 15 minutes
+    // (used:true is allowed because verifyOTP already consumed it)
+    const fifteenMinsAgo = new Date(Date.now() - 15 * 60 * 1000);
+    const record = await prisma.otpCode.findFirst({
+      where: {
+        email,
+        code: otp,
+        createdAt: { gt: fifteenMinsAgo }
+      },
+      orderBy: { createdAt: 'desc' }
+    });
+
+    if (!record) {
       return res.status(400).json({
-        error:'OTP not found'
+        success: false,
+        error: 'Invalid or expired OTP. Please request a new reset code.'
       });
     }
 
-    const valid =
-      await bcrypt.compare(
-        otp,
-        token.tokenHash
-      );
+    const user = await prisma.user.findUnique({ where: { email } });
 
-    if(!valid){
-      return res.status(400).json({
-        error:'Invalid OTP'
-      });
+    if (!user) {
+      return res.status(404).json({ error: 'User not found' });
     }
 
-    const passwordHash =
-      await bcrypt.hash(password,10);
+    const passwordHash = await bcrypt.hash(newPassword, 10);
 
     await prisma.user.update({
-      where:{ id:user.id },
-      data:{ passwordHash }
+      where: { email },
+      data: { passwordHash }
     });
 
-    await prisma.otpToken.update({
-      where:{ id:token.id },
-      data:{ used:true }
+    // Invalidate all OTPs for this email
+    await prisma.otpCode.updateMany({
+      where: { email },
+      data: { used: true }
     });
+
+    return res.json({
+      success: true,
+      message: 'Password reset successfully. You may now log in.'
+    });
+
+  } catch (error) {
+    console.error('Reset password error:', error.message);
+    const isTableMissing = error.message?.includes('does not exist') || error.code === 'P2021';
+    res.status(500).json({
+      error: isTableMissing
+        ? 'Password reset is not yet configured. Please contact support.'
+        : 'Password reset failed. Please try again.'
+    });
+  }
+};
+
+
+export const googleLogin = async (req, res) => {
+  try {
+    const { email, name, avatarUrl } = req.body;
+
+    if (!email || !name) {
+      return res.status(400).json({
+        error: 'Email and name are required'
+      });
+    }
+
+    // Validate email format
+    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+    if (!emailRegex.test(email)) {
+      return res.status(400).json({
+        error: 'Invalid email format'
+      });
+    }
+
+    // Find or create user
+    let user = await prisma.user.findUnique({
+      where: { email }
+    });
+
+    if (!user) {
+      // Create new user for Google OAuth login
+      user = await prisma.user.create({
+        data: {
+          name,
+          email,
+          avatarUrl: avatarUrl || null,
+          passwordHash: null, // OAuth users don't have password
+          role: 'MEMBER'
+        }
+      });
+    } else {
+      // Update existing user with latest Google profile info
+      if (avatarUrl || name) {
+        user = await prisma.user.update({
+          where: { email },
+          data: {
+            ...(avatarUrl && { avatarUrl }),
+            ...(name && { name })
+          }
+        });
+      }
+    }
+
+    // Generate JWT token
+    const token = signAuthToken(user);
 
     res.json({
-      success:true,
-      message:'Password updated'
+      success: true,
+      token,
+      user: {
+        id: user.id,
+        name: user.name,
+        email: user.email,
+        avatarUrl: user.avatarUrl,
+        role: user.role
+      }
     });
 
-  }catch(error){
+  } catch (error) {
+    console.error('Google login error:', error.message);
     res.status(500).json({
-      error:error.message
+      error: 'Google login failed. Please try again.',
+      details: process.env.NODE_ENV === 'development' ? error.message : undefined
     });
   }
 };
@@ -525,4 +517,3 @@ async(req,res)=>{
     });
   }
 };
-

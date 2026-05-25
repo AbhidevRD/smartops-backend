@@ -1,6 +1,6 @@
+import 'dotenv/config';
 import express from 'express';
 import cors from 'cors';
-import dotenv from 'dotenv';
 import helmet from 'helmet';
 import morgan from 'morgan';
 import rateLimit from 'express-rate-limit';
@@ -8,6 +8,8 @@ import rateLimit from 'express-rate-limit';
 import prisma from './lib/prisma.js';
 
 import authRoutes from './routes/auth.routes.js';
+import oauthRoutes from './routes/oauth.routes.js';
+import inviteRoutes from './routes/invite.routes.js';
 import projectRoutes from './routes/project.routes.js';
 import taskRoutes from './routes/task.routes.js';
 import dashboardRoutes from './routes/dashboard.routes.js';
@@ -19,25 +21,34 @@ import notificationRoutes from './routes/notification.routes.js';
 import aiRoutes from './routes/ai.routes.js';
 import emailRoutes from './routes/email.routes.js';
 import chatRoutes from './routes/chat.routes.js';
+import fileRoutes from './routes/file.routes.js';
+import badgeRoutes from './routes/badge.routes.js';
+import path from 'path';
+import { fileURLToPath } from 'url';
 
-dotenv.config();
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
 
 const app = express();
 
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 
+// Serve uploaded files statically
+app.use('/uploads', express.static(path.join(__dirname, '../uploads')));
+
 app.use(helmet());
 app.use(morgan('dev'));
 
 app.use(rateLimit({
   windowMs: 15 * 60 * 1000,
-  max: 100
+  max: 1000
 }));
 
 app.use(cors({
   origin: process.env.FRONTEND_URL || 'http://localhost:3001',
   credentials: true,
+  exposedHeaders: ['Content-Disposition'],
 }));
 
 app.get('/', (req, res) => {
@@ -66,6 +77,9 @@ app.get('/test-db', async (req, res) => {
 });
 
 app.use('/api/auth', authRoutes);
+app.use('/api/oauth', oauthRoutes);
+app.use('/api/invites', inviteRoutes);
+app.use('/api/project', projectRoutes);
 app.use('/api/projects', projectRoutes);
 app.use('/api/tasks', taskRoutes);
 app.use('/api/dashboard', dashboardRoutes);
@@ -75,8 +89,10 @@ app.use('/api/admin', adminRoutes);
 app.use('/api/reports', reportRoutes);
 app.use('/api/notifications', notificationRoutes);
 app.use('/api/ai', aiRoutes);
+app.use('/api/badges', badgeRoutes);
 app.use('/api/admin-email', emailRoutes);
 app.use('/api/chat', chatRoutes);
+app.use('/api/files', fileRoutes);
 
 app.use((req, res) => {
   res.status(404).json({
@@ -85,7 +101,7 @@ app.use((req, res) => {
 });
 
 app.use((err, req, res, next) => {
-  console.error('Unhandled error:', err.message);
+  console.error('Unhandled error:', err.stack || err);
 
   res.status(500).json({
     error: 'Internal server error'

@@ -1,12 +1,35 @@
 import prisma from '../lib/prisma.js';
 import { createNotification } from '../services/notification.service.js';
 
+let isDbConnected = false;
+
+/**
+ * Verify database connection is ready
+ */
+async function verifyDatabaseConnection() {
+  try {
+    if (isDbConnected) return true;
+    
+    await prisma.$queryRaw`SELECT 1`;
+    isDbConnected = true;
+    return true;
+  } catch (error) {
+    console.warn('[Deadline Job] Database not ready yet, will retry...');
+    return false;
+  }
+}
+
 /**
  * Check for tasks with deadlines arriving today or overdue
  * Runs periodically to notify assignees about approaching/passed deadlines
  */
 async function checkDeadlines() {
   try {
+    // Verify DB connection before running
+    if (!await verifyDatabaseConnection()) {
+      throw new Error('Database connection not available');
+    }
+
     const now = new Date();
     const todayStart = new Date(now.getFullYear(), now.getMonth(), now.getDate());
     const todayEnd = new Date(todayStart);
@@ -93,9 +116,35 @@ async function checkDeadlines() {
 
 // Run every 30 minutes
 const INTERVAL_MS = 30 * 60 * 1000;
-setInterval(checkDeadlines, INTERVAL_MS);
+let retryCount = 0;
+const MAX_RETRIES = 5;
+const RETRY_DELAY_MS = 5000;
 
-// Run once on startup after a short delay
-setTimeout(checkDeadlines, 10000);
+// Retry function with exponential backoff
+async function runDeadlineCheckWithRetry() {
+  try {
+    await checkDeadlines();
+    retryCount = 0; // Reset on success
+  } catch (error) {
+    retryCount++;
+    console.error(`[Deadline Check] Error (attempt ${retryCount}/${MAX_RETRIES}):`, error.message);
+    
+    if (retryCount < MAX_RETRIES) {
+      // Retry with exponential backoff: 5s, 10s, 15s, 20s, 25s
+      const delay = RETRY_DELAY_MS * retryCount;
+      console.log(`[Deadline Check] Retrying in ${delay}ms...`);
+      setTimeout(runDeadlineCheckWithRetry, delay);
+    } else {
+      console.error('[Deadline Check] Max retries exceeded, will resume on next interval');
+      retryCount = 0;
+    }
+  }
+}
 
-console.log('[Deadline Job] Scheduled every 30 minutes');
+// Schedule regular runs
+setInterval(runDeadlineCheckWithRetry, INTERVAL_MS);
+
+// Initial run with retry (wait 15 seconds to allow DB to fully initialize)
+setTimeout(runDeadlineCheckWithRetry, 15000);
+
+console.log('[Deadline Job] Scheduled every 30 minutes with retry logic');

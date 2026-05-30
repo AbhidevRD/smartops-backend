@@ -1872,13 +1872,13 @@ export const chatWithAI = async (req, res) => {
 CRITICAL RULES:
 1. You MUST answer ONLY using the DATABASE RECORDS provided below. These are REAL records from the system.
 2. NEVER make up, guess, or assume any data. If information is not in the provided data, say "I don't have that information in the current data."
-3. Be SPECIFIC: include exact task names, deadlines, assignee names, project names, statuses, and priorities from the data.
-4. Be CONCISE: give direct answers. No motivational filler, no "great question" preamble, no generic advice.
-5. When asked about deadlines, give the exact date.
-6. When asked about assignees, give the exact name.
-7. When asked about status, give the exact status (TODO, IN_PROGRESS, DONE).
-8. When asked about workload, count tasks by status and priority from the data.
-9. Format dates as human-readable (e.g., "May 10, 2026").
+3. Use simple, natural sentences or short paragraphs. Do not use bullet points, numbered lists, tables, or markdown unless the user explicitly asks for them.
+4. Be specific and refer directly to project or task names, statuses, deadlines, assignees, and priorities from the data.
+5. Avoid long technical explanations and do not add extra motivational language.
+6. When asked about deadlines, give the exact date in a human-readable format, for example "May 10, 2026."
+7. When asked about assignees, give the exact name.
+8. When asked about status, give the exact status (TODO, IN_PROGRESS, DONE).
+9. When asked about workload, count tasks by status and priority from the data.
 10. If the user asks something unrelated to project management, politely redirect them to project-related topics.
 
 TODAY'S DATE: ${new Date().toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric' })}
@@ -1928,27 +1928,32 @@ ${dataContext || 'No matching records found in the database.'}
       let fallbackMessage = '';
 
       if (matchedTasks.length > 0) {
-        fallbackMessage += `Here's what I found in the database:\n\n`;
-        matchedTasks.slice(0, 5).forEach((t, i) => {
-          fallbackMessage += `${i + 1}. "${t.title}"\n`;
-          fallbackMessage += `   Status: ${t.status} | Priority: ${t.priority}\n`;
-          if (t.deadline) fallbackMessage += `   Deadline: ${new Date(t.deadline).toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric' })}\n`;
-          if (t.assignee) fallbackMessage += `   Assigned to: ${t.assignee.name}\n`;
-          if (t.project) fallbackMessage += `   Project: ${t.project.name}\n`;
-          fallbackMessage += '\n';
-        });
-        if (matchedTasks.length > 5) {
-          fallbackMessage += `...and ${matchedTasks.length - 5} more tasks.\n`;
+        const firstTasks = matchedTasks.slice(0, 3);
+        fallbackMessage = `I found ${matchedTasks.length} matching task${matchedTasks.length === 1 ? '' : 's'} in the database. `;
+        fallbackMessage += firstTasks.map((t) => {
+          let sentence = `Task "${t.title}" is currently ${t.status.toLowerCase().replace(/_/g, ' ')}`;
+          sentence += ` with ${t.priority.toLowerCase()} priority`;
+          if (t.deadline) sentence += ` and a deadline on ${new Date(t.deadline).toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric' })}`;
+          if (t.project) sentence += ` for project ${t.project.name}`;
+          if (t.assignee) sentence += ` assigned to ${t.assignee.name}`;
+          return sentence + '.';
+        }).join(' ');
+        if (matchedTasks.length > 3) {
+          fallbackMessage += ` There are ${matchedTasks.length - 3} additional matching tasks not listed here.`;
         }
       } else if (userTasks.length > 0) {
-        fallbackMessage += `Your current tasks:\n\n`;
-        userTasks.slice(0, 5).forEach((t, i) => {
-          fallbackMessage += `${i + 1}. "${t.title}" — ${t.status}, ${t.priority}`;
-          if (t.deadline) fallbackMessage += `, Due: ${new Date(t.deadline).toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric' })}`;
-          fallbackMessage += '\n';
-        });
+        fallbackMessage = `You currently have ${userTasks.length} tasks assigned. `;
+        fallbackMessage += userTasks.slice(0, 3).map((t) => {
+          let sentence = `Task "${t.title}" is ${t.status.toLowerCase().replace(/_/g, ' ')}`;
+          sentence += ` with ${t.priority.toLowerCase()} priority`;
+          if (t.deadline) sentence += ` and is due on ${new Date(t.deadline).toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric' })}`;
+          return sentence + '.';
+        }).join(' ');
+        if (userTasks.length > 3) {
+          fallbackMessage += ` There are ${userTasks.length - 3} more tasks for you.`;
+        }
       } else {
-        fallbackMessage = 'No matching tasks or projects found for your query. Try asking about specific task names, project names, or team members.';
+        fallbackMessage = 'No matching tasks or projects were found for your query. Try asking about specific task names, project names, or team members.';
       }
 
       return res.json({

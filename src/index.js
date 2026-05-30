@@ -45,6 +45,37 @@ validateStartupConfig();
 
 console.log('Active DATABASE_URL:', process.env.DATABASE_URL?.slice(0, 200));
 
+// Improved database connection initialization with retries
+async function initializeDatabaseConnection() {
+  let retries = 0;
+  const maxRetries = 5;
+  
+  while (retries < maxRetries) {
+    try {
+      console.log(`\n[DB Init] Attempting connection (attempt ${retries + 1}/${maxRetries})...`);
+      await prisma.$queryRaw`SELECT 1`;
+      console.log('✓ Database connection established successfully\n');
+      return true;
+    } catch (error) {
+      retries++;
+      console.warn(`[DB Init] Connection attempt ${retries} failed: ${error.message}`);
+      
+      if (retries < maxRetries) {
+        const delayMs = 3000 * retries; // 3s, 6s, 9s, 12s, 15s
+        console.log(`[DB Init] Retrying in ${delayMs}ms...\n`);
+        await new Promise(resolve => setTimeout(resolve, delayMs));
+      }
+    }
+  }
+  
+  console.warn('[DB Init] Could not establish database connection after retries.');
+  console.warn('[DB Init] The server will start anyway - verify DB connection before use.\n');
+  return false;
+}
+
+// Initialize database before starting server
+await initializeDatabaseConnection();
+
 const httpServer = createServer(app);
 
 const io = new Server(httpServer, {
